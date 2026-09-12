@@ -31,6 +31,7 @@
     input { background:#0d0d0d !important; color:#fff !important; border-color:#2c2c2a !important; }
   }
   .wrap { max-width:380px; margin:12vh auto; padding:0 20px; }
+  @media (max-width:640px) { .wrap { margin:6vh auto; } }
   .box { background:#fcfcfb; border:1px solid #e1e0d9; border-radius:12px; padding:22px; }
   h1 { font-size:18px; margin:0 0 4px; }
   p.sub { color:#7a7973; margin:0 0 18px; font-size:13px; }
@@ -47,10 +48,20 @@
          border-bottom:1px solid #e1e0d9; background:#fcfcfb; font-size:12px; }
   .bar button { width:auto; margin:0; padding:4px 10px; font-size:12px;
                 background:transparent; color:inherit; border:1px solid #e1e0d9; }
-  iframe { display:none; width:100%; border:0; height:calc(100vh - 34px); }
+  /* dvh, not vh: on mobile the URL bar makes 100vh taller than the visible
+     area, so the bottom of the report sits below the fold and cannot be
+     scrolled to. vh first for browsers without dvh. */
+  iframe { display:none; width:100%; border:0; }
   body.in .wrap { display:none; }
-  body.in .bar, body.in iframe { display:flex; }
-  body.in iframe { display:block; }
+  body.in .bar { display:flex; flex:none; }
+  /* Column layout rather than height:calc(100% - 34px): the bar is only 34px
+     while it fits on one line, and at ~320px it wraps — then the old constant
+     pushed the iframe's bottom past the viewport and you got an outer scrollbar
+     around an inner one. Letting the iframe take the remaining space removes
+     the magic number. */
+  body.in { display:flex; flex-direction:column; height:100vh; height:100dvh; }
+  body.in iframe { display:block; flex:1 1 auto; min-height:0; }
+  #who { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>
 </head>
 <body>
