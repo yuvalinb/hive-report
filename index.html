@@ -159,6 +159,36 @@
     load();
   });
 
+  // The commands page (SCRUM-78) runs inside the iframe and never sees the
+  // session token. It hands each API call here; this adds the token, calls the
+  // function and posts the answer back. Only the frame we loaded may ask, and
+  // only the function itself can be called — this is not a general proxy.
+  window.addEventListener('message', async ev => {
+    const d = ev.data;
+    if (!d || d.type !== 'ble-report-api' || ev.source !== frame.contentWindow) return;
+    const reply = (status, data) =>
+      ev.source.postMessage({ type: 'ble-report-api-result', id: d.id, status, data }, '*');
+    if (d.method !== 'GET' && d.method !== 'POST') return reply(0, { ok: false, error: 'Bad method.' });
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return reply(401, { ok: false, error: 'Signed out — sign in again.' });
+    const headers = { Authorization: 'Bearer ' + session.access_token, apikey: ANON_KEY };
+    let body;
+    if (d.method === 'POST') {
+      headers['Content-Type'] = d.binary ? 'application/octet-stream' : 'application/json';
+      body = d.binary ? d.body : JSON.stringify(d.body || {});
+    }
+    const query = new URLSearchParams(Object.assign({}, d.query || {},
+      { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' })).toString();
+    try {
+      const r = await fetch(FN + '?' + query, { method: d.method, headers, body });
+      let data;
+      try { data = await r.json(); } catch { data = { ok: false, error: 'HTTP ' + r.status }; }
+      reply(r.status, data);
+    } catch (e) {
+      reply(0, { ok: false, error: String(e) });
+    }
+  });
+
   document.getElementById('login').addEventListener('submit', async ev => {
     ev.preventDefault();
     go.disabled = true;
