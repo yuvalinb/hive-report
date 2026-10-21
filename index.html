@@ -61,15 +61,56 @@
      the magic number. */
   body.in { display:flex; flex-direction:column; height:100vh; height:100dvh; }
   body.in iframe { display:block; flex:1 1 auto; min-height:0; }
-  #who { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #who { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; color:#7a7973; }
+  #out { flex:none; }
+
+  /* Tabs (SCRUM-82): one strip for the views, in place of the links
+     each view used to carry to the others. Underlined rather than pills, to
+     keep the bar a thin strip above the content. The bar is a fixed height so
+     the underline sits on its bottom border. */
+  .bar { min-height:42px; padding:0 12px; box-sizing:border-box; }
+  .bar strong { white-space:nowrap; font-size:13px; }
+  .tabs { display:flex; gap:2px; align-self:stretch; margin-left:8px;
+          overflow-x:auto; scrollbar-width:none; }
+  .tabs::-webkit-scrollbar { display:none; }
+  .bar .tab { all:unset; box-sizing:border-box; display:flex; align-items:center; padding:0 12px;
+              cursor:pointer; white-space:nowrap; font-size:13px; font-weight:600; color:#7a7973;
+              border-bottom:2px solid transparent; }
+  .bar .tab:hover, .bar .tab[aria-selected="true"] { color:#0b0b0b; }
+  .bar .tab[aria-selected="true"] { border-bottom-color:#0b0b0b; }
+  .bar .tab:focus-visible { outline:2px solid #0b0b0b; outline-offset:-2px; border-radius:6px; }
+  .tab .short { display:none; }
+  @media (prefers-color-scheme: dark) {
+    .bar { background:#1a1a19; border-bottom-color:#2c2c2a; }
+    .bar button#out { border-color:#2c2c2a; }
+    .bar .tab:hover, .bar .tab[aria-selected="true"] { color:#fff; }
+    .bar .tab[aria-selected="true"] { border-bottom-color:#fff; }
+    .bar .tab:focus-visible { outline-color:#fff; }
+  }
+  /* A phone keeps the row for the tabs: the title and email go, and the
+     labels shorten, so all four fit at 375px without scrolling. */
+  @media (max-width:640px) {
+    .bar { padding:0 8px; gap:6px; }
+    .bar strong, #who { display:none; }
+    .tabs { margin-left:0; }
+    .bar .tab { padding:0 10px; }
+    .tab .long { display:none; }
+    .tab .short { display:inline; }
+  }
 </style>
 </head>
 <body>
 
 <div class="bar">
   <strong>BLE link report</strong>
-  <span id="who" style="color:#7a7973"></span>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button class="tab" role="tab" data-page="report">Report</button>
+    <button class="tab" role="tab" data-page="commands"><span class="long">Commands &amp; OTA</span><span class="short">Commands</span></button>
+    <button class="tab" role="tab" data-page="yard"><span class="long">Shai's yard</span><span class="short">Yard</span></button>
+    <button class="tab" role="tab" data-page="map">Map</button>
+  </nav>
   <span style="flex:1"></span>
+  <span id="who"></span>
   <button id="out">Sign out</button>
 </div>
 <iframe id="frame" title="BLE link report"></iframe>
@@ -121,13 +162,50 @@
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   };
 
+  // Tabs (SCRUM-82). The view is params.page — absent for the report — so a
+  // tab is just another way of setting it, alongside the views' own
+  // ble-report-nav messages. The gateway is left alone, so it carries across
+  // tabs. The view is mirrored in the URL hash so a reload stays on it.
+  const tabs = [...document.querySelectorAll('.bar .tab')];
+  const VIEWS = tabs.map(t => t.dataset.page);
+  const fromHash = location.hash.slice(1);
+  if (fromHash !== 'report' && VIEWS.includes(fromHash)) params.page = fromHash;
+
+  function syncTabs() {
+    const view = params.page || 'report';
+    for (const t of tabs) {
+      const on = t.dataset.page === view;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+    }
+    try { history.replaceState(null, '', '#' + view); } catch { /* file:// in some browsers */ }
+  }
+
+  function openView(view) {
+    if (view === 'report') delete params.page; else params.page = view;
+    load();
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => openView(t.dataset.page));
+    // Arrow keys move between tabs, as a tablist is expected to.
+    t.addEventListener('keydown', ev => {
+      const step = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      ev.preventDefault();
+      const next = tabs[(i + step + tabs.length) % tabs.length];
+      next.focus();
+      openView(next.dataset.page);
+    });
+  });
+
   async function load() {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) { document.body.classList.remove('in'); return; }
     document.body.classList.add('in');
     document.getElementById('who').textContent = session.user.email || '';
+    syncTabs();
     frame.setAttribute('srcdoc',
-      '<p style="font:14px system-ui;margin:24px">Loading report…</p>');
+      '<p style="font:14px system-ui;margin:24px">Loading…</p>');
     const qs = new URLSearchParams(params).toString();
     try {
       const r = await fetch(FN + '?' + qs, {
@@ -150,8 +228,8 @@
 
   window.addEventListener('message', ev => {
     if (!ev.data || ev.data.type !== 'ble-report-nav') return;
-    // The yard page is a separate view: only a message that asks for it
-    // keeps it, so the report's own controls always lead back to the report.
+    // A view only persists while a message asks for it, so the report's own
+    // controls always land on the report. The tabs follow (syncTabs in load).
     delete params.page;
     Object.assign(params, ev.data.params);
     if (!params.page) delete params.page;
